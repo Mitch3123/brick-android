@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Brick</string>
+    <string name="accessibility_service_description">Brick focuses your device by intercepting blocked apps while bricked and maintaining focus.</string>
+    <string name="device_admin_description">Enables Strict Mode anti-uninstall protection while your phone is bricked.</string>
+</resources>
