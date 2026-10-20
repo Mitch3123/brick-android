@@ -1,21 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application>
-        <!-- Test-only hook receiver for headless automated E2E verification.
-             Strictly excluded from release builds via Gradle debug source set overlay. -->
-        <receiver
-            android:name="com.brick.app.feature.service.SimulateTokenScanReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.brick.action.SIMULATE_TOKEN_SCAN" />
-                <action android:name="com.brick.action.ADVANCE_TEST_CLOCK" />
-                <action android:name="com.brick.action.START_RECOVERY" />
-                <action android:name="com.brick.action.CHECK_RECOVERY" />
-                <action android:name="com.brick.action.TRIGGER_SCHEDULE" />
-                <action android:name="com.brick.action.SET_MODE" />
-                <action android:name="com.brick.action.GET_STATUS" />
-                <action android:name="com.brick.action.RESET_STATE" />
-            </intent-filter>
-        </receiver>
-    </application>
+    <!-- Debug builds intentionally have no exported test receiver.
+         Test hooks live exclusively in app/src/e2e/AndroidManifest.xml. -->
 </manifest>

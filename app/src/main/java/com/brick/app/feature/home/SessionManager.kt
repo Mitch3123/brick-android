@@ -1,7 +1,6 @@
 package com.brick.app.feature.home
 
 import android.content.Context
-import android.content.Intent
 import android.util.Log
 import com.brick.app.core.common.SystemTimeProvider
 import com.brick.app.core.common.TestTimeProvider
@@ -10,15 +9,16 @@ import com.brick.app.core.database.BrickDatabase
 import com.brick.app.core.database.BrickSessionEntity
 import com.brick.app.core.database.ModeEntity
 import com.brick.app.core.database.TokenEntity
+import com.brick.app.core.database.TokenType
 import com.brick.app.core.database.UnbrickTrigger
+import com.brick.app.core.security.RecoveryEngine
 import com.brick.app.feature.service.BrickForegroundService
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -40,7 +40,7 @@ class SessionManager private constructor(
 
         fun getInstance(context: Context): SessionManager {
             return INSTANCE ?: synchronized(this) {
-                val provider = TestTimeProvider.getInstance() ?: SystemTimeProvider()
+                val provider = if (com.brick.app.BuildConfig.E2E_HOOKS) TestTimeProvider.getInstance() else SystemTimeProvider()
                 INSTANCE ?: SessionManager(context.applicationContext, provider).also { INSTANCE = it }
             }
         }
@@ -51,7 +51,12 @@ class SessionManager private constructor(
     }
 
     private val db = database ?: BrickDatabase.getInstance(context)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val transitionMutex = Mutex()
+
+    /** Holds the same lock as brick/unbrick through the actual token write. */
+    suspend fun <T> whileUnbricked(block: suspend () -> T): T? = transitionMutex.withLock {
+        if (db.sessionDao().getActiveSession() != null) null else block()
+    }
 
     private val _activeSession = MutableStateFlow<BrickSessionEntity?>(null)
     val activeSession: StateFlow<BrickSessionEntity?> = _activeSession.asStateFlow()
@@ -93,31 +98,26 @@ class SessionManager private constructor(
         return _activeSession.value?.strictModeActive == true
     }
 
-    suspend fun brick(modeId: Long? = null, strictMode: Boolean = false) {
-        val mode = if (modeId != null) {
-            db.modeDao().getModeById(modeId)
-        } else {
-            db.modeDao().getDefaultMode()
-        } ?: run {
+    suspend fun brick(modeId: Long? = null, strictMode: Boolean = false) = transitionMutex.withLock {
+        check(db.sessionDao().getActiveSession() == null) { "Already bricked" }
+        // Guard the state-machine boundary: alarms and token scans can start sessions too.
+        check(db.tokenDao().getTokenCount() > 0) { "Pair a physical token before bricking" }
+        val requestedMode = if (modeId != null) db.modeDao().getModeById(modeId) else null
+        if (modeId != null) check(requestedMode != null) { "Scheduled mode no longer exists" }
+        val mode = requestedMode ?: db.modeDao().getDefaultMode() ?: run {
             // Create fallback default mode if none exists
             val fallback = ModeEntity(
                 name = "Deep Work",
                 modeType = com.brick.app.core.database.ModeType.BLOCK_LIST,
-                packageNames = emptySet(),
+                packageNames = setOf("com.google.android.youtube", "com.instagram.android", "com.android.chrome"),
                 isDefault = true
             )
             val newId = db.modeDao().insert(fallback)
             fallback.copy(id = newId)
         }
 
-        // Close any dangling sessions first
-        val existing = db.sessionDao().getActiveSession()
-        if (existing != null) {
-            db.sessionDao().closeSession(
-                sessionId = existing.id,
-                endTimeMs = timeProvider.currentTimeMillis(),
-                trigger = UnbrickTrigger.MANUAL_DEBUG
-            )
+        check(mode.modeType != com.brick.app.core.database.ModeType.BLOCK_LIST || mode.packageNames.isNotEmpty()) {
+            "Select apps to block before bricking"
         }
 
         val newSession = BrickSessionEntity(
@@ -128,6 +128,7 @@ class SessionManager private constructor(
             strictModeActive = strictMode
         )
 
+        RecoveryEngine.getInstance(context).cancelRecovery()
         val sessionId = db.sessionDao().insert(newSession)
         val createdSession = newSession.copy(id = sessionId)
 
@@ -145,9 +146,31 @@ class SessionManager private constructor(
         }
     }
 
-    suspend fun unbrick(trigger: UnbrickTrigger = UnbrickTrigger.NFC_TAG, triggerToken: TokenEntity? = null) {
-        val session = db.sessionDao().getActiveSession()
-        if (session != null) {
+    suspend fun unbrick(trigger: UnbrickTrigger, triggerToken: TokenEntity? = null) = transitionMutex.withLock {
+        val session = db.sessionDao().getActiveSession() ?: return@withLock
+        val expectedType = when (trigger) {
+            UnbrickTrigger.NFC_TAG -> TokenType.NFC
+            UnbrickTrigger.QR_CODE -> TokenType.QR
+            else -> null
+        }
+        when (trigger) {
+            UnbrickTrigger.NFC_TAG, UnbrickTrigger.QR_CODE -> {
+                require(triggerToken != null && triggerToken.id > 0 &&
+                    triggerToken.tokenType == expectedType &&
+                    db.tokenDao().getById(triggerToken.id)?.let { paired ->
+                        paired.tokenType == expectedType && paired.tokenHash == triggerToken.tokenHash
+                    } == true) { "A paired physical token is required for NFC/QR unlock" }
+            }
+            UnbrickTrigger.RECOVERY_24H -> {
+                check(RecoveryEngine.getInstance(context).hasCompletedRecoveryFor(session.id)) {
+                    "24-hour recovery is not complete"
+                }
+            }
+            UnbrickTrigger.MANUAL_DEBUG -> {
+                check(com.brick.app.BuildConfig.E2E_HOOKS) { "Manual unbrick is only available in the isolated E2E build" }
+            }
+        }
+        if (session.isActive) {
             val endTime = timeProvider.currentTimeMillis()
             db.sessionDao().closeSession(
                 sessionId = session.id,
@@ -156,6 +179,7 @@ class SessionManager private constructor(
             )
         }
 
+        RecoveryEngine.getInstance(context).cancelRecovery()
         _activeSession.value = null
         _isBricked.value = false
 
@@ -170,6 +194,7 @@ class SessionManager private constructor(
     }
 
     suspend fun forceResetUnbrick() {
+        check(com.brick.app.BuildConfig.E2E_HOOKS) { "Reset disabled outside the isolated E2E build" }
         unbrick(UnbrickTrigger.MANUAL_DEBUG)
     }
 }

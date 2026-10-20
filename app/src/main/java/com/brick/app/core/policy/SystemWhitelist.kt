@@ -20,7 +20,9 @@ object SystemWhitelist {
 
     fun isWhitelisted(packageName: String): Boolean {
         if (packageName.isBlank()) return true
-        if (packageName == "com.brick.app") return true
+        // The isolated E2E build has a different applicationId; it must not block itself
+        // when an allow-list mode is active.
+        if (packageName == com.brick.app.BuildConfig.APPLICATION_ID) return true
         if (CRITICAL_PACKAGES.contains(packageName)) return true
         
         // System phone/dialer/emergency packages

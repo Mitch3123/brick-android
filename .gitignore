@@ -11,3 +11,6 @@ app/build/
 .cxx
 local.properties
 .agents/
+
+__pycache__/
+*.pyc

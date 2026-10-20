@@ -28,7 +28,7 @@ class DefaultTokenScanUseCase(
         val tokenHash = CryptoUtils.sha256(tokenPayload)
         val token = db.tokenDao().findByHash(tokenHash)
 
-        if (token == null) {
+        if (token == null || token.tokenType != tokenType) {
             // Unpaired token MUST be strictly rejected
             return ScanResult.UnpairedTokenRejected
         }

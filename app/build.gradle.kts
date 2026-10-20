@@ -12,15 +12,26 @@ android {
         applicationId = "com.brick.app"
         minSdk = 24
         targetSdk = 36
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = 1
         versionName = "1.0"
     }
 
     buildTypes {
+        getByName("debug") {
+            buildConfigField("boolean", "E2E_HOOKS", "false")
+        }
         release {
             isMinifyEnabled = false
+            buildConfigField("boolean", "E2E_HOOKS", "false")
             signingConfig = signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        create("e2e") {
+            initWith(getByName("debug"))
+            matchingFallbacks += listOf("debug")
+            applicationIdSuffix = ".e2e"
+            buildConfigField("boolean", "E2E_HOOKS", "true")
         }
     }
     compileOptions {
@@ -77,6 +88,13 @@ dependencies {
 
     // Security / Crypto
     implementation(libs.androidx.security.crypto)
+
+    // Camera (physical QR scanning) + ZXing (real QR encode/decode)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.zxing.core)
 
     // Compose
     implementation(libs.androidx.compose.ui)

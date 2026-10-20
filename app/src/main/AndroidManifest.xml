@@ -72,12 +72,27 @@
             android:exported="false"
             android:foregroundServiceType="specialUse" />
 
-        <!-- Boot Completed Receiver -->
+        <!-- Boot / package-replacement / clock-change state restorer.
+             All three clear or invalidate pending alarms, so all three must rearm schedules
+             and the recovery tick.
+             Every action listed here is a protected system broadcast, so nothing another app can
+             send reaches this receiver. The OEM QUICKBOOT_POWERON variants are deliberately NOT
+             listed: they are unprotected, and an exported receiver accepting them would be a
+             forgeable "the device just booted" signal. The recovery ledger grants no credit for
+             a boot broadcast anyway (it trusts only the kernel boot id and monotonic
+             regression), so the only cost is a marginally later rearm on such devices. -->
         <receiver
             android:name=".feature.service.BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
 
@@ -102,6 +117,15 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.brick.action.SCHEDULE_ALARM" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Monotonic 24h recovery tick; self-rearming, app-private -->
+        <receiver
+            android:name=".feature.service.RecoveryTickReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.brick.action.RECOVERY_TICK" />
             </intent-filter>
         </receiver>
 

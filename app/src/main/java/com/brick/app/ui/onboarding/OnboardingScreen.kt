@@ -25,6 +25,13 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.runtime.collectAsState
+import com.brick.app.core.database.BrickDatabase
+import com.brick.app.feature.nfc.rememberTokenScanController
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,6 +57,10 @@ fun OnboardingScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val scanner = rememberTokenScanController()
+    val db = remember(context) { BrickDatabase.getInstance(context) }
+    val pairedTokenCount by remember(db) { db.tokenDao().observeTokenCount() }.collectAsState(initial = 0)
     var hasAccessibility by remember { mutableStateOf(false) }
     var hasOverlay by remember { mutableStateOf(false) }
     var hasDeviceAdmin by remember { mutableStateOf(false) }
@@ -72,8 +83,15 @@ fun OnboardingScreen(
         hasDeviceAdmin = dpm.isAdminActive(adminComponent)
     }
 
-    LaunchedEffect(Unit) {
+    // Settings returns to this same composition; checking only at initial composition left
+    // every permission showing GRANT after the user came back from enabling it.
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) checkPermissions()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
         checkPermissions()
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Column(
@@ -159,9 +177,23 @@ fun OnboardingScreen(
             }
         }
 
+        Text(
+            text = if (pairedTokenCount > 0) "TOKEN PAIRED" else "PAIR YOUR FIRST PHYSICAL TOKEN",
+            color = PureWhite, fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = "Use an NFC tag, or print the QR card and keep it away from this phone.",
+            color = TextMuted, fontSize = 12.sp
+        )
+        Row {
+            Button(onClick = { scanner.requestPairNfcToken("My NFC token") }) { Text("PAIR NFC") }
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(onClick = { scanner.requestPairQrToken("My QR token") }) { Text("CREATE QR TOKEN") }
+        }
         Spacer(modifier = Modifier.height(16.dp))
 
         Button(
+            enabled = pairedTokenCount > 0 && hasAccessibility,
             onClick = onFinishOnboarding,
             colors = ButtonDefaults.buttonColors(
                 containerColor = PureWhite,

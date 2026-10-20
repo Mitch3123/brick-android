@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:testOnly="true">
+        <!-- Test-only hook receiver for headless automated E2E verification.
+             Only present in the explicit e2e variant; never ship this APK to a phone. -->
+        <receiver
+            android:name="com.brick.app.feature.service.SimulateTokenScanReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.brick.action.SIMULATE_TOKEN_SCAN" />
+                <action android:name="com.brick.action.ADVANCE_TEST_CLOCK" />
+                <action android:name="com.brick.action.ADVANCE_WALL_CLOCK" />
+                <action android:name="com.brick.action.START_RECOVERY" />
+                <action android:name="com.brick.action.CHECK_RECOVERY" />
+                <action android:name="com.brick.action.TRIGGER_SCHEDULE" />
+                <action android:name="com.brick.action.SET_MODE" />
+                <action android:name="com.brick.action.BRICK_STRICT" />
+                <action android:name="com.brick.action.GET_STATUS" />
+                <action android:name="com.brick.action.RESET_STATE" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

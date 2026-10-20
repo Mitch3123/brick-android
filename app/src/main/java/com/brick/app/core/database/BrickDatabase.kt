@@ -65,11 +65,12 @@ abstract class BrickDatabase : RoomDatabase() {
         override fun onCreate(db: SupportSQLiteDatabase) {
             super.onCreate(db)
             val now = System.currentTimeMillis()
-            // Prepopulate a default "Deep Work" block-list mode so the app is immediately ready
+            // Seed common distractions; users can choose exact installed apps in Modes.
+            // This is not a substitute for pairing a physical token before bricking.
             db.execSQL(
                 """
                 INSERT INTO modes (name, mode_type, packages, is_default, created_at)
-                VALUES ('Deep Work', 'BLOCK_LIST', '[]', 1, $now)
+                VALUES ('Deep Work', 'BLOCK_LIST', '["com.google.android.youtube","com.instagram.android","com.zhiliaoapp.musically","com.android.chrome"]', 1, $now)
                 """.trimIndent()
             )
         }

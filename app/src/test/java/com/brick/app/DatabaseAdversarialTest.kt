@@ -250,7 +250,7 @@ class DatabaseAdversarialTest {
         assertEquals("Deep Work", defaultMode?.name)
         assertEquals(ModeType.BLOCK_LIST, defaultMode?.modeType)
         assertTrue("Prepopulated mode must be marked as default", defaultMode?.isDefault == true)
-        assertEquals("Prepopulated mode package list should be empty set", emptySet<String>(), defaultMode?.packageNames)
+        assertTrue("Default mode must block real distraction packages", defaultMode?.packageNames?.contains("com.google.android.youtube") == true)
         assertTrue(defaultMode!!.createdAt > 0L)
     }
 

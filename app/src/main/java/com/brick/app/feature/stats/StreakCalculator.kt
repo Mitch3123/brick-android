@@ -1,7 +1,7 @@
 package com.brick.app.feature.stats
 
 import com.brick.app.core.database.BrickSessionEntity
-import java.util.Calendar
+import java.util.TimeZone
 
 data class StreakStats(
     val currentStreakDays: Int,
@@ -12,10 +12,19 @@ data class StreakStats(
 
 /**
  * Calculates current focus streak, longest focus streak, and aggregates historical session metrics.
+ *
+ * Days are keyed by their local epoch day index, so ordering is numeric and consecutive days stay
+ * consecutive across month and year boundaries.
  */
 object StreakCalculator {
 
-    fun calculateStats(sessions: List<BrickSessionEntity>): StreakStats {
+    private const val MS_PER_DAY = 24L * 60L * 60L * 1000L
+
+    fun calculateStats(
+        sessions: List<BrickSessionEntity>,
+        nowMs: Long = System.currentTimeMillis(),
+        timeZone: TimeZone = TimeZone.getDefault()
+    ): StreakStats {
         if (sessions.isEmpty()) {
             return StreakStats(
                 currentStreakDays = 0,
@@ -26,64 +35,63 @@ object StreakCalculator {
         }
 
         var totalMs = 0L
-        val uniqueDays = mutableSetOf<String>()
+        val activeDays = sortedSetOf<Long>()
 
         for (s in sessions) {
-            val duration = s.durationMs ?: (if (s.endTimeMs != null) (s.endTimeMs - s.startTimeMs).coerceAtLeast(0L) else 0L)
-            totalMs += duration
-
-            val cal = Calendar.getInstance().apply { timeInMillis = s.startTimeMs }
-            val dayKey = "${cal.get(Calendar.YEAR)}-${cal.get(Calendar.DAY_OF_YEAR)}"
-            uniqueDays.add(dayKey)
-        }
-
-        val sortedDays = uniqueDays.sorted()
-        var currentStreak = 0
-        var longestStreak = 0
-        var tempStreak = 0
-
-        // Calculate longest streak from unique consecutive day keys
-        var prevYear = -1
-        var prevDay = -1
-
-        for (key in sortedDays) {
-            val parts = key.split("-")
-            val year = parts[0].toInt()
-            val day = parts[1].toInt()
-
-            if (prevYear == -1) {
-                tempStreak = 1
-            } else if (year == prevYear && day == prevDay + 1) {
-                tempStreak++
-            } else {
-                tempStreak = 1
-            }
-
-            if (tempStreak > longestStreak) {
-                longestStreak = tempStreak
-            }
-
-            prevYear = year
-            prevDay = day
-        }
-
-        // Current streak check based on today / yesterday
-        val todayCal = Calendar.getInstance()
-        val todayKey = "${todayCal.get(Calendar.YEAR)}-${todayCal.get(Calendar.DAY_OF_YEAR)}"
-        val yesterdayCal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
-        val yesterdayKey = "${yesterdayCal.get(Calendar.YEAR)}-${yesterdayCal.get(Calendar.DAY_OF_YEAR)}"
-
-        currentStreak = if (uniqueDays.contains(todayKey) || uniqueDays.contains(yesterdayKey)) {
-            tempStreak
-        } else {
-            0
+            totalMs += durationOf(s)
+            activeDays.add(localDayIndex(s.startTimeMs, timeZone))
         }
 
         return StreakStats(
-            currentStreakDays = currentStreak,
-            longestStreakDays = longestStreak,
+            currentStreakDays = currentStreak(activeDays, localDayIndex(nowMs, timeZone)),
+            longestStreakDays = longestStreak(activeDays),
             totalBrickedTimeMs = totalMs,
             sessionCount = sessions.size
         )
+    }
+
+    private fun durationOf(session: BrickSessionEntity): Long =
+        session.durationMs
+            ?: session.endTimeMs?.let { (it - session.startTimeMs).coerceAtLeast(0L) }
+            ?: 0L
+
+    /**
+     * Local epoch day of [ms]: the number of whole days since 1970-01-01 as seen in [timeZone].
+     * Uses the UTC offset in effect at that instant so DST shifts do not move a day boundary.
+     */
+    private fun localDayIndex(ms: Long, timeZone: TimeZone): Long =
+        Math.floorDiv(ms + timeZone.getOffset(ms), MS_PER_DAY)
+
+    private fun longestStreak(activeDays: Set<Long>): Int {
+        var longest = 0
+        var run = 0
+        var previous: Long? = null
+
+        for (day in activeDays) {
+            run = if (previous != null && day == previous + 1) run + 1 else 1
+            if (run > longest) longest = run
+            previous = day
+        }
+        return longest
+    }
+
+    /**
+     * The run of consecutive active days ending today, or ending yesterday when today has no
+     * session yet. Days in the future (clock changes) never anchor a current streak.
+     */
+    private fun currentStreak(activeDays: Set<Long>, today: Long): Int {
+        val anchor = when {
+            activeDays.contains(today) -> today
+            activeDays.contains(today - 1) -> today - 1
+            else -> return 0
+        }
+
+        var streak = 0
+        var day = anchor
+        while (activeDays.contains(day)) {
+            streak++
+            day--
+        }
+        return streak
     }
 }

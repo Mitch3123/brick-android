@@ -1,5 +1,7 @@
 # Project: Brick Native Android App
 
+Historical project plan: directory diagrams and milestone descriptions below are the original blueprint, not an as-built file inventory or proof of completed acceptance tests. See `README.md` for current structure and `TEST_READY.md` for verification status.
+
 ## Architecture
 A native Android focus / screen-time app written in Kotlin for personal offline use.
 The architecture follows Clean Architecture with Jetpack Compose, Kotlin Coroutines, and Room Database:
@@ -53,14 +55,14 @@ Every feature identified in the Survey phase and user requirements is inventorie
 | F12 | Full-Screen Blocking Overlay | `singleInstance` Activity displaying stark "YOU'RE BRICKED" message, active mode, and emergency recovery link; dismiss prevention via `GLOBAL_ACTION_HOME` | M2 | Survey 2 & R2 |
 | F13 | Foreground Service Watchdog | Keeps app process alive, shows persistent notification with active mode and timer, restarts on kill via `START_STICKY` | M2 | Survey 2 & R2 |
 | F14 | Reboot State Restorer | `BootReceiver` restoring active brick state and services on `BOOT_COMPLETED` | M2 | Survey 2 & R2 |
-| F15 | Simulated Token Scan Test Hook | Debug-only `SimulateTokenScanReceiver` allowing ADB intent simulation of NFC and QR token scans | M2 | Survey 3 & AC-3/4/6 |
+| F15 | Simulated Token Scan Test Hook | Isolated E2E-only `SimulateTokenScanReceiver` allowing ADB intent simulation of NFC and QR token scans | M2 | Survey 3 & AC-3/4/6 |
 | F16 | Modes & Installed App Picker | Block-list and Allow-list profiles; installed apps discovery via `PackageManager` (`QUERY_ALL_PACKAGES`) | M3 | Survey 2 & R3 |
 | F17 | Exact Schedules Engine | Auto-brick at user-defined days and times via `AlarmManager.setExactAndAllowWhileIdle()`; boot rescheduling | M3 | Survey 2 & R3 |
 | F18 | Strict Mode Anti-Uninstall | `DeviceAdminReceiver` registration preventing package uninstall while bricked | M3 | Survey 2 & R3 |
 | F19 | Settings Anti-Tamper Shield | Accessibility service kicks user to home screen if navigating to Settings -> Apps -> Brick to Force Stop or Clear Data | M3 | Survey 2 & R3 |
 | F20 | 24-Hour Recovery Engine | Tamper-resistant cooldown based on monotonic elapsed real time; immune to system clock changes | M3 | Survey 2 & R3 |
 | F21 | Recovery Reboot Persistence | Persists cumulative elapsed time across reboots; boot ID mismatch handling; prevents shortcutting via power-off or reboot | M3 | Survey 2 & User Follow-up |
-| F22 | Recovery Test Clock Hooks | Debug test hook allowing advancing test clock to verify 24h recovery completion and wall-clock resistance | M3 | Survey 3 & AC-10 |
+| F22 | Recovery Test Clock Hooks | Isolated E2E test hook allowing advancing test clock to verify 24h recovery completion and wall-clock resistance | M3 | Survey 3 & AC-10 |
 | F23 | Stark B&W Design System | Pure black `#000000`, white `#FFFFFF`, high contrast, bold sans-serif typography, custom components | M4 | Survey 2 & R4 |
 | F24 | Bold State Home Screen | Prominent BRICKED / UNBRICKED state indicator, active mode chip, session timer, token prompt | M4 | Survey 2 & R4 |
 | F25 | First-Run Onboarding Wizard | Guided permissions walkthrough (Accessibility, UsageStats, Overlay, DeviceAdmin, ExactAlarm, Notification, Camera) with live status | M4 | Survey 2 & R4 |
@@ -212,8 +214,8 @@ C:\Users\mitch\teamwork_projects\brick\
 │       │   └── res/
 │       │       ├── xml/                 // accessibility_service_config.xml, device_admin.xml
 │       │       └── values/              // strings.xml, themes.xml
-│       ├── debug/
-│       │   ├── AndroidManifest.xml      // Debug receiver registration
+│       ├── e2e/
+│       │   ├── AndroidManifest.xml      // testOnly E2E receiver registration
 │       │   └── java/com/brick/app/feature/service/SimulateTokenScanReceiver.kt
 │       └── test/                        // JVM Unit tests
 │           └── java/com/brick/app/

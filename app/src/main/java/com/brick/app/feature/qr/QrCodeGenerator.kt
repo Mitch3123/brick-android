@@ -2,82 +2,78 @@ package com.brick.app.feature.qr
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import java.security.SecureRandom
 
 /**
- * Generates offline printable QR token payloads and Bitmaps.
- * Generates standalone monochrome Bitmaps suitable for printing or screen display.
+ * Generates offline printable QR token payloads and standards-compliant QR Code bitmaps.
+ *
+ * Encoding is performed by ZXing so a generated bitmap is decodable by [QrPayloadDecoder]
+ * and by any third-party scanner, which is what makes a printed card a usable physical token.
  */
 object QrCodeGenerator {
 
-    private const val PREFIX = "BRICK-QR-V1:"
+    const val PREFIX = "BRICK-QR-V1:"
+
+    private const val QUIET_ZONE_MODULES = 4
     private val random = SecureRandom()
 
     fun generateUniquePayload(label: String = "Card"): String {
         val randomBytes = ByteArray(16)
         random.nextBytes(randomBytes)
         val hex = randomBytes.joinToString("") { "%02x".format(it) }
-        return "$PREFIX${label.uppercase().replace(" ", "_")}_$hex"
+        return "$PREFIX${sanitizeLabel(label)}_$hex"
+    }
+
+    fun isBrickPayload(payload: String): Boolean = payload.startsWith(PREFIX)
+
+    /**
+     * Encodes [payload] into the QR module matrix, indexed as `[y][x]`, `true` meaning a dark module.
+     * Exposed so the encoding can be verified without an Android graphics stack.
+     */
+    fun encodeToModules(payload: String): Array<BooleanArray> {
+        require(payload.isNotBlank()) { "QR payload must not be blank" }
+        val hints = mapOf(
+            EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
+            EncodeHintType.CHARACTER_SET to "UTF-8",
+            EncodeHintType.MARGIN to QUIET_ZONE_MODULES
+        )
+        val matrix = QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 0, 0, hints)
+        return Array(matrix.height) { y ->
+            BooleanArray(matrix.width) { x -> matrix.get(x, y) }
+        }
     }
 
     /**
-     * Generates a monochrome bitmap pattern for a given payload.
-     * Uses pseudo-random deterministic grid derivation so it functions completely offline
-     * with zero external heavy binary dependencies if needed, or renders standard QR block matrix.
+     * Renders [payload] as a monochrome QR bitmap, scaled up to at most [width] x [height]
+     * on whole-module boundaries so the printed code stays sharp.
      */
     fun generateQrBitmap(payload: String, width: Int = 512, height: Int = 512): Bitmap {
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val hash = payload.hashCode()
-        val seed = java.util.Random(hash.toLong())
+        require(width > 0 && height > 0) { "Bitmap dimensions must be positive" }
+        val modules = encodeToModules(payload)
+        val moduleCount = modules.size
+        val scale = maxOf(1, minOf(width, height) / moduleCount)
+        val side = moduleCount * scale
 
-        val gridSize = 21 // standard QR version 1 size
-        val cellW = width / gridSize
-        val cellH = height / gridSize
-
-        // Draw background white
-        for (x in 0 until width) {
-            for (y in 0 until height) {
-                bitmap.setPixel(x, y, Color.WHITE)
+        val pixels = IntArray(side * side)
+        for (y in 0 until side) {
+            val row = modules[y / scale]
+            val rowOffset = y * side
+            for (x in 0 until side) {
+                pixels[rowOffset + x] = if (row[x / scale]) Color.BLACK else Color.WHITE
             }
         }
+        return Bitmap.createBitmap(pixels, side, side, Bitmap.Config.ARGB_8888)
+    }
 
-        // Draw finder patterns (top-left, top-right, bottom-left)
-        fun drawFinder(startX: Int, startY: Int) {
-            for (gx in 0 until 7) {
-                for (gy in 0 until 7) {
-                    val isBorder = (gx == 0 || gx == 6 || gy == 0 || gy == 6)
-                    val isCenter = (gx in 2..4 && gy in 2..4)
-                    val color = if (isBorder || isCenter) Color.BLACK else Color.WHITE
-                    for (px in (startX + gx) * cellW until (startX + gx + 1) * cellW) {
-                        for (py in (startY + gy) * cellH until (startY + gy + 1) * cellH) {
-                            bitmap.setPixel(px, py, color)
-                        }
-                    }
-                }
-            }
-        }
-
-        drawFinder(0, 0)
-        drawFinder(gridSize - 7, 0)
-        drawFinder(0, gridSize - 7)
-
-        // Fill data matrix deterministically
-        for (gx in 0 until gridSize) {
-            for (gy in 0 until gridSize) {
-                // Skip finders
-                if ((gx < 8 && gy < 8) || (gx >= gridSize - 8 && gy < 8) || (gx < 8 && gy >= gridSize - 8)) {
-                    continue
-                }
-                val isDark = seed.nextBoolean()
-                val color = if (isDark) Color.BLACK else Color.WHITE
-                for (px in gx * cellW until (gx + 1) * cellW) {
-                    for (py in gy * cellH until (gy + 1) * cellH) {
-                        bitmap.setPixel(px, py, color)
-                    }
-                }
-            }
-        }
-
-        return bitmap
+    private fun sanitizeLabel(label: String): String {
+        val cleaned = label.uppercase()
+            .map { if (it.isLetterOrDigit()) it else '_' }
+            .joinToString("")
+            .trim('_')
+        return cleaned.ifEmpty { "CARD" }
     }
 }
