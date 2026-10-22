@@ -62,9 +62,9 @@ class MainScreenTest {
       ModesContent(listOf(ModeEntity(id = 1, name = "Deep Work", modeType = ModeType.BLOCK_LIST,
         packageNames = setOf("com.android.chrome"))), 1, false, {}, { _, _, _ -> })
     }
-    composeTestRule.onNodeWithText("ADD MODE").performClick()
+    composeTestRule.onNodeWithText("Add mode").performClick()
     composeTestRule.onNodeWithText("Mode name").assertExists()
-    composeTestRule.onNodeWithText("SELECT INSTALLED APPS").assertExists()
+    composeTestRule.onNodeWithText("Choose apps").assertExists()
     composeTestRule.onNodeWithText("Block list", substring = true).assertExists()
   }
 
@@ -79,9 +79,9 @@ class MainScreenTest {
     }
     composeTestRule.onNodeWithText("Morning", substring = true).assertExists()
     composeTestRule.onNodeWithContentDescription("Edit Morning").performClick()
-    composeTestRule.onNodeWithText("EDIT SCHEDULE").assertExists()
+    composeTestRule.onNodeWithText("Edit schedule").assertExists()
     composeTestRule.onNodeWithContentDescription("Monday").assertExists()
-    composeTestRule.onNodeWithText("SAVE SCHEDULE").assertExists()
+    composeTestRule.onNodeWithText("Save schedule").assertExists()
   }
 
 
@@ -98,8 +98,7 @@ class MainScreenTest {
         onEnabled = { _, _ -> }, onDelete = {})
     }
     composeTestRule.onNodeWithContentDescription("Edit Quiet mornings").performClick()
-    composeTestRule.onRoot().performScrollToNode(hasText("SAVE SCHEDULE"))
-    composeTestRule.onNodeWithText("SAVE SCHEDULE").performClick()
+    composeTestRule.onNodeWithText("Save schedule").performClick()
     composeTestRule.runOnIdle { org.junit.Assert.assertEquals(rule, saved) }
   }
 
@@ -111,21 +110,25 @@ class MainScreenTest {
       SchedulesContent(emptyList(), listOf(mode), onSave = {},
         onEnabled = { _, _ -> }, onDelete = {})
     }
-    composeTestRule.onNodeWithText("+  ADD SCHEDULE").performClick()
-    composeTestRule.onNodeWithText("SAVE SCHEDULE").assertIsNotEnabled()
+    composeTestRule.onNodeWithContentDescription("Create new schedule").performClick()
+    composeTestRule.onNodeWithText("Save schedule").assertIsNotEnabled()
     composeTestRule.onNodeWithContentDescription("Sunday").performClick()
     composeTestRule.onNodeWithContentDescription("Saturday").performClick()
     composeTestRule.onNodeWithText("Every day").assertExists()
-    composeTestRule.onNodeWithText("CANCEL").performClick()
-    composeTestRule.onNodeWithText("+  ADD SCHEDULE").assertExists()
+    composeTestRule.onNodeWithContentDescription("Back").performClick()
+    composeTestRule.onNodeWithContentDescription("Create new schedule").assertExists()
   }
 
   @Test
   fun statsEmptyStateShowsRealZeroesAndNoInventedSessions() {
     composeTestRule.setContent { StatsDashboard(emptyList()) }
-    composeTestRule.onNodeWithText("YOUR FOCUS").assertExists()
-    org.junit.Assert.assertTrue("Today and average should be zero", composeTestRule.onAllNodesWithText("0:00").fetchSemanticsNodes().size >= 2)
-    composeTestRule.onNodeWithText("THE LAST 15 DAYS").assertExists()
+    composeTestRule.onNodeWithText("Weekly Activity").assertExists()
+    composeTestRule.onNodeWithText("THIS WEEK").assertExists()
+    composeTestRule.onNodeWithText("Avg Brick Time").assertExists()
+    composeTestRule.onNodeWithText("Recent sessions").assertDoesNotExist()
+    composeTestRule.onNodeWithContentDescription("Weekly Activity range").performClick()
+    composeTestRule.onNodeWithText("Last week").performClick()
+    composeTestRule.onNodeWithText("LAST WEEK").assertExists()
   }
 
   @Test

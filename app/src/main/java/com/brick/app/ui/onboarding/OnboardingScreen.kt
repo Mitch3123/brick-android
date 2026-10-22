@@ -1,264 +1,156 @@
 package com.brick.app.ui.onboarding
 
-import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.DisposableEffect
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.compose.runtime.collectAsState
-import com.brick.app.core.database.BrickDatabase
-import com.brick.app.feature.nfc.rememberTokenScanController
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.brick.app.feature.service.BrickAccessibilityService
-import com.brick.app.feature.service.BrickDeviceAdminReceiver
-import com.brick.app.theme.CardSurface
-import com.brick.app.theme.DarkSurface
-import com.brick.app.theme.PureBlack
-import com.brick.app.theme.PureWhite
-import com.brick.app.theme.TextMuted
+import androidx.room.withTransaction
+import com.brick.app.R
+import com.brick.app.core.database.BrickDatabase
+import com.brick.app.core.database.ModeEntity
+import com.brick.app.core.database.ModeType
+import com.brick.app.feature.home.SessionManager
+import com.brick.app.feature.nfc.rememberTokenScanController
+import com.brick.app.ui.design.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
-fun OnboardingScreen(
-    onFinishOnboarding: () -> Unit,
-    modifier: Modifier = Modifier
-) {
+fun OnboardingScreen(onFinishOnboarding: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val scanner = rememberTokenScanController()
     val db = remember(context) { BrickDatabase.getInstance(context) }
-    val pairedTokenCount by remember(db) { db.tokenDao().observeTokenCount() }.collectAsState(initial = 0)
-    var hasAccessibility by remember { mutableStateOf(false) }
-    var hasOverlay by remember { mutableStateOf(false) }
-    var hasDeviceAdmin by remember { mutableStateOf(false) }
+    val scanner = rememberTokenScanController()
+    val scope = rememberCoroutineScope()
+    val apps by rememberSelectableApps()
+    val tokens by remember(db) { db.tokenDao().observeTokenCount() }.collectAsState(initial = 0)
+    var step by rememberSaveable { mutableIntStateOf(0) }
+    var selected by rememberSaveable { mutableStateOf(listOf<String>()) }
+    var pickerOpen by rememberSaveable { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    BackHandler(step > 0 && !pickerOpen && !saving) { step-- }
 
-    fun checkPermissions() {
-        val enabledServices = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: ""
-        hasAccessibility = enabledServices.contains("BrickAccessibilityService")
+    fun finishSetup() {
+        if (saving || selected.isEmpty() || tokens == 0) return
+        saving = true
+        error = null
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val manager = SessionManager.getInstance(context)
+                    val saved = manager.whileUnbricked {
+                    db.withTransaction {
+                        val names = db.modeDao().getAllModes().map { it.name }.toSet()
+                        val name = generateSequence(1) { it + 1 }
+                            .map { if (it == 1) "No Socials" else "No Socials ($it)" }
+                            .first { it !in names }
+                        val mode = ModeEntity(name = name, modeType = ModeType.BLOCK_LIST, packageNames = selected.toSet())
+                        val id = db.modeDao().insert(mode)
+                        db.modeDao().setDefaultMode(id)
+                    }
+                    true
+                    } ?: false
+                    check(saved) { "Unbrick before changing your mode." }
+                    manager.refreshSession()
+                }
+                onFinishOnboarding()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                error = failure.message ?: "Could not save setup. Please try again."
+            } finally { saving = false }
+        }
+    }
 
-        hasOverlay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            Settings.canDrawOverlays(context)
+    ReferenceTheme {
+        if (step == 2) {
+            PermissionSetupScreen(onContinue = { step = 3 }, onBack = { step = 1 },
+                modifier = modifier.background(ReferenceBackground).safeDrawingPadding())
         } else {
-            true
-        }
-
-        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        val adminComponent = ComponentName(context, BrickDeviceAdminReceiver::class.java)
-        hasDeviceAdmin = dpm.isAdminActive(adminComponent)
-    }
-
-    // Settings returns to this same composition; checking only at initial composition left
-    // every permission showing GRANT after the user came back from enabling it.
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) checkPermissions()
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        checkPermissions()
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(PureBlack)
-            .padding(24.dp)
-    ) {
-        Text(
-            text = "WELCOME TO BRICK",
-            color = PureWhite,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 2.sp
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "Take back control of your screen time. One tap locks distractions until you tap your physical Brick token.",
-            color = TextMuted,
-            fontSize = 14.sp,
-            lineHeight = 20.sp
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = "REQUIRED PERMISSIONS",
-            color = PureWhite,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.weight(1f)
-        ) {
-            item {
-                PermissionItem(
-                    title = "Accessibility Service",
-                    description = "Required to detect and intercept blocked applications in real time.",
-                    isGranted = hasAccessibility,
-                    onGrant = {
-                        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                        context.startActivity(intent)
+            Column(modifier.fillMaxSize().background(ReferenceBackground).safeDrawingPadding().padding(horizontal = 24.dp)) {
+                Spacer(Modifier.height(20.dp))
+                if (step > 0) RoundBackButton({ step-- }) else Spacer(Modifier.height(48.dp))
+                Spacer(Modifier.height(18.dp))
+                when (step) {
+                    0 -> {
+                        OnboardingHeading("Nice, let's call your first mode\nNo Socials")
+                        Spacer(Modifier.height(12.dp))
+                        Text("Now let's choose the apps to block when you use it.", color = ReferenceMuted,
+                            fontSize = 18.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                        Image(painterResource(R.drawable.onboarding_social_apps), null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxWidth().weight(1f).padding(top = 24.dp, bottom = 95.dp, start = 35.dp, end = 35.dp))
+                        PillButton("Choose apps", { pickerOpen = true })
+                        Text("Block up to 50 distractions for this mode. You can edit anytime.",
+                            color = ReferenceMuted, fontSize = 15.sp, textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp))
                     }
-                )
-            }
-            item {
-                PermissionItem(
-                    title = "Display Over Other Apps",
-                    description = "Displays the full-screen 'You're Bricked' shield over distracting apps.",
-                    isGranted = hasOverlay,
-                    onGrant = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            val intent = Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:${context.packageName}")
-                            )
-                            context.startActivity(intent)
+                    1 -> {
+                        OnboardingHeading("No Socials is ready to block ${selected.size} " +
+                            if (selected.size == 1) "distraction" else "distractions")
+                        Spacer(Modifier.height(20.dp))
+                        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(apps.orEmpty().filter { it.packageName in selected }, key = { it.packageName }) {
+                                AppSelectionRow(it)
+                            }
+                        }
+                        PillButton("Finish setup", { step = 2 })
+                        TextButton({ pickerOpen = true }, modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+                            Text("Edit selection", fontSize = 16.sp)
                         }
                     }
-                )
-            }
-            item {
-                PermissionItem(
-                    title = "Device Admin (Strict Mode)",
-                    description = "Prevents uninstalling Brick while actively bricked.",
-                    isGranted = hasDeviceAdmin,
-                    onGrant = {
-                        val component = ComponentName(context, BrickDeviceAdminReceiver::class.java)
-                        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-                            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, component)
-                            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Enables Strict Mode protection while bricked.")
+                    3 -> {
+                        Text("PRACTICE RUN", fontSize = 15.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(10.dp))
+                        OnboardingHeading("Try your first Brick")
+                        Spacer(Modifier.height(12.dp))
+                        Text("On the next screen, hold your phone near the Brick.\nNo apps will be blocked.",
+                            color = ReferenceMuted, fontSize = 19.sp, lineHeight = 27.sp,
+                            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                        Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 24.dp)
+                            .background(ReferenceCard, RoundedCornerShape(26.dp)), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                com.brick.app.ui.scan.ScanIllustration(Modifier.size(180.dp))
+                                Text("Brick", fontSize = 30.sp)
+                                Text("Pair your NFC tag or a printed QR token", color = ReferenceMuted,
+                                    textAlign = TextAlign.Center, modifier = Modifier.padding(20.dp))
+                            }
                         }
-                        context.startActivity(intent)
+                        error?.let { Text(it, color = ReferenceInk, modifier = Modifier.padding(bottom = 12.dp)) }
+                        if (tokens > 0) PillButton(if (saving) "Saving…" else "Continue to Brick", ::finishSetup, enabled = !saving)
+                        else PillButton("Try it now", { scanner.requestPairNfcToken("My Brick") })
+                        TextButton({ scanner.requestPairQrToken("My QR token") }, enabled = !saving,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+                            Text("Use a QR token instead", fontSize = 16.sp)
+                        }
                     }
-                )
+                }
             }
         }
-
-        Text(
-            text = if (pairedTokenCount > 0) "TOKEN PAIRED" else "PAIR YOUR FIRST PHYSICAL TOKEN",
-            color = PureWhite, fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = "Use an NFC tag, or print the QR card and keep it away from this phone.",
-            color = TextMuted, fontSize = 12.sp
-        )
-        Row {
-            Button(onClick = { scanner.requestPairNfcToken("My NFC token") }) { Text("PAIR NFC") }
-            Spacer(modifier = Modifier.width(8.dp))
-            Button(onClick = { scanner.requestPairQrToken("My QR token") }) { Text("CREATE QR TOKEN") }
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Button(
-            enabled = pairedTokenCount > 0 && hasAccessibility,
-            onClick = onFinishOnboarding,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = PureWhite,
-                contentColor = PureBlack
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp)
-        ) {
-            Text(
-                text = "CONTINUE TO BRICK",
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-                letterSpacing = 1.sp
-            )
+        if (pickerOpen) AppSelectionSheet(apps, selected.toSet(), { pickerOpen = false }) {
+            selected = it.toList(); pickerOpen = false; step = 1
         }
     }
 }
 
 @Composable
-private fun PermissionItem(
-    title: String,
-    description: String,
-    isGranted: Boolean,
-    onGrant: () -> Unit
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = CardSurface),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = PureWhite,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = description,
-                    color = TextMuted,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Button(
-                onClick = onGrant,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isGranted) Color(0xFF2E7D32) else DarkSurface,
-                    contentColor = PureWhite
-                )
-            ) {
-                Text(
-                    text = if (isGranted) "READY" else "GRANT",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp
-                )
-            }
-        }
-    }
+private fun OnboardingHeading(text: String) {
+    Text(text, fontSize = 28.sp, lineHeight = 36.sp, textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth())
 }

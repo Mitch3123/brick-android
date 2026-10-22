@@ -1,6 +1,8 @@
 package com.brick.app.ui.main
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,37 +11,53 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
 import com.brick.app.core.database.BrickDatabase
 import com.brick.app.core.database.BrickSessionEntity
 import com.brick.app.feature.stats.FocusTimeline
 import com.brick.app.feature.stats.StreakCalculator
+import com.brick.app.feature.stats.WeekActivity
+import com.brick.app.feature.stats.WeeklyActivity
+import com.brick.app.ui.design.ReferenceCard
+import com.brick.app.ui.design.ReferenceInk
+import com.brick.app.ui.design.ReferenceMuted
 import kotlinx.coroutines.delay
-import com.brick.app.theme.CardSurface
-import com.brick.app.theme.LightBorder
-import com.brick.app.theme.PureWhite
-import com.brick.app.theme.TextMuted
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -52,7 +70,7 @@ fun StatsContent() {
     StatsDashboard(sessions)
 }
 
-/** Statistics show real, completed sessions only. No sample numbers in the empty state. */
+/** Weekly activity from real, completed sessions only. No sample numbers in the empty state. */
 @Composable
 fun StatsDashboard(sessions: List<BrickSessionEntity>) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -62,107 +80,173 @@ fun StatsDashboard(sessions: List<BrickSessionEntity>) {
             now = System.currentTimeMillis()
         }
     }
-    val days = remember(sessions, now / 60_000) { FocusTimeline.recentDays(sessions, nowMs = now) }
+    var weekOffset by rememberSaveable { mutableIntStateOf(0) }
+    var rangeOpen by rememberSaveable { mutableStateOf(false) }
+    val week = remember(sessions, weekOffset, now / 60_000) { WeeklyActivity.week(sessions, weekOffset, now) }
     val stats = remember(sessions, now / 60_000) { StreakCalculator.calculateStats(sessions, now) }
-    val dateFormat = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
     val historyFormat = remember { SimpleDateFormat("EEE d MMM · h:mm a", Locale.getDefault()) }
-    LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+
+    LazyColumn(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
         item {
-            Text("YOUR FOCUS", color = PureWhite, fontSize = 27.sp,
-                fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-            Spacer(Modifier.height(6.dp))
-            Text("One session at a time.", color = TextMuted, fontSize = 14.sp)
-            Spacer(Modifier.height(30.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                FocusHeadline("TODAY", clockDuration(days.first().durationMs), Modifier.weight(1f))
-                Box(Modifier.padding(horizontal = 12.dp).width(1.dp).height(58.dp).background(LightBorder))
-                FocusHeadline("DAILY AVERAGE · 7 DAYS",
-                    clockDuration(FocusTimeline.averageLastSevenDays(days)), Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(34.dp))
-            Text("THE LAST 15 DAYS", color = TextMuted, fontSize = 11.sp,
-                fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
-            Spacer(Modifier.height(12.dp))
-        }
-        // Keep the three-column grid inside the parent scroll rather than nesting scrollables.
-        items(days.chunked(3)) { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { day ->
-                    Column(
-                        Modifier.weight(1f).height(106.dp)
-                            .background(CardSurface, RoundedCornerShape(14.dp))
-                            .padding(horizontal = 12.dp, vertical = 13.dp),
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(dateFormat.format(Date(day.startMs)).uppercase(Locale.getDefault()),
-                            color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Column {
-                            Text("${day.durationMs / 3_600_000}h", color = PureWhite,
-                                fontSize = 23.sp, fontWeight = FontWeight.Medium)
-                            Text("${(day.durationMs / 60_000) % 60}m", color = TextMuted, fontSize = 16.sp)
-                        }
-                    }
+            Spacer(Modifier.height(36.dp))
+            Box {
+                Row(
+                    Modifier.clickable { rangeOpen = true }
+                        .semantics { contentDescription = "Weekly Activity range" }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Weekly Activity", color = ReferenceInk, fontSize = 22.sp, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.width(8.dp))
+                    Chevron()
+                }
+                DropdownMenu(expanded = rangeOpen, onDismissRequest = { rangeOpen = false }) {
+                    DropdownMenuItem(text = { Text("This week") },
+                        onClick = { weekOffset = 0; rangeOpen = false })
+                    DropdownMenuItem(text = { Text("Last week") },
+                        onClick = { weekOffset = -1; rangeOpen = false })
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Text(if (week.isCurrentWeek) "THIS WEEK" else "LAST WEEK", color = ReferenceInk,
+                fontSize = 14.sp, letterSpacing = 0.5.sp)
+            Spacer(Modifier.height(18.dp))
+            DashedRule(Modifier.fillMaxWidth())
         }
         item {
-            Spacer(Modifier.height(24.dp))
-            HorizontalDivider(color = LightBorder)
-            Spacer(Modifier.height(24.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                SummaryMetric("CURRENT STREAK", "${stats.currentStreakDays} days", Modifier.weight(1f))
-                SummaryMetric("BEST STREAK", "${stats.longestStreakDays} days", Modifier.weight(1f))
+            Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp)) {
+                Spacer(Modifier.height(30.dp))
+                Text("Avg Brick Time", color = ReferenceMuted, fontSize = 17.sp)
+                Spacer(Modifier.height(28.dp))
+                val average = week.averageMs
+                if (average == null) {
+                    Box(Modifier.padding(start = 3.dp).width(32.dp).height(3.dp).background(ReferenceInk))
+                    Spacer(Modifier.height(30.dp))
+                    Text(emptyAverageMessage(week), color = ReferenceMuted, fontSize = 17.sp, lineHeight = 24.sp)
+                } else {
+                    Text(WeeklyActivity.compactDuration(average), color = ReferenceInk,
+                        fontSize = 38.sp, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(30.dp))
+                    Text("Across ${week.completedDays} completed ${if (week.completedDays == 1) "day" else "days"}.",
+                        color = ReferenceMuted, fontSize = 17.sp)
+                }
+                Spacer(Modifier.height(40.dp))
+                WeekChart(week)
             }
-            Spacer(Modifier.height(20.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                SummaryMetric("FOCUS TIME", clockDuration(sessions.sumOf { FocusTimeline.sessionDurationMs(it, now) }), Modifier.weight(1f))
-                SummaryMetric("SESSIONS", "${stats.sessionCount}", Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(32.dp))
-            Text("RECENT SESSIONS", color = PureWhite, fontSize = 16.sp,
-                fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
-            Spacer(Modifier.height(12.dp))
-            if (sessions.isEmpty()) {
-                Text("Your focus sessions will show up here after you unbrick.",
-                    color = TextMuted, fontSize = 13.sp)
-                Spacer(Modifier.height(24.dp))
+        }
+        item {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp)) {
+                if (sessions.isNotEmpty()) {
+                    Spacer(Modifier.height(34.dp))
+                    Row(Modifier.fillMaxWidth().background(ReferenceCard, RoundedCornerShape(24.dp)).padding(18.dp)) {
+                        SummaryMetric("Current streak", "${stats.currentStreakDays} days", Modifier.weight(1f))
+                        SummaryMetric("Best streak", "${stats.longestStreakDays} days", Modifier.weight(1f))
+                        SummaryMetric("Sessions", "${stats.sessionCount}", Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.height(26.dp))
+                    Text("Recent sessions", color = ReferenceInk, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(6.dp))
+                }
             }
         }
         items(sessions.take(20), key = { it.id }) { session ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 13.dp),
+            Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 13.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(session.modeName, color = PureWhite, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    Text(historyFormat.format(Date(session.startTimeMs)), color = TextMuted, fontSize = 12.sp)
+                    Text(session.modeName, color = ReferenceInk, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    Text(historyFormat.format(Date(session.startTimeMs)), color = ReferenceMuted, fontSize = 13.sp)
                 }
                 Text(clockDuration(FocusTimeline.sessionDurationMs(session, now)),
-                    color = PureWhite, fontSize = 14.sp)
+                    color = ReferenceInk, fontSize = 15.sp)
             }
-            HorizontalDivider(color = LightBorder)
+            HorizontalDivider(Modifier.padding(horizontal = 22.dp), color = ReferenceMuted.copy(alpha = 0.25f))
         }
-        item { Spacer(Modifier.height(24.dp)) }
+        item { Spacer(Modifier.height(32.dp)) }
+    }
+}
+
+private fun emptyAverageMessage(week: WeekActivity): String = when {
+    week.isCurrentWeek && (week.completedDays == 0 || week.totalMs == 0L) -> "Your first day is underway. Check back for your average."
+    week.isCurrentWeek -> "No Brick time recorded yet this week."
+    else -> "No Brick time was recorded last week."
+}
+
+@Composable
+private fun Chevron() {
+    Canvas(Modifier.size(width = 12.dp, height = 8.dp)) {
+        val stroke = 2.dp.toPx()
+        drawLine(ReferenceInk, Offset(1f, 1f), Offset(size.width / 2, size.height - 1f), stroke, StrokeCap.Round)
+        drawLine(ReferenceInk, Offset(size.width / 2, size.height - 1f), Offset(size.width - 1f, 1f), stroke, StrokeCap.Round)
     }
 }
 
 @Composable
-private fun FocusHeadline(label: String, time: String, modifier: Modifier = Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center, maxLines = 1)
-        Spacer(Modifier.height(7.dp))
-        Text(time, color = PureWhite, fontSize = 34.sp, fontWeight = FontWeight.Light,
-            maxLines = 1)
+private fun DashedRule(modifier: Modifier = Modifier) {
+    Canvas(modifier.height(1.dp)) {
+        drawLine(ReferenceMuted.copy(alpha = 0.6f), Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx(),
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx())))
+    }
+}
+
+/** Sunday-to-Saturday bars over a dashed grid (quarters of the axis), labelled at the top and middle lines. */
+@Composable
+private fun WeekChart(week: WeekActivity) {
+    val axisMax = WeeklyActivity.axisMaxMs(week.maxDayMs)
+    val dayFormat = remember { SimpleDateFormat("EEE", Locale.getDefault()) }
+    val summary = week.days.joinToString("; ") {
+        "${dayFormat.format(Date(it.startMs))} ${WeeklyActivity.compactDuration(it.durationMs)}"
+    }
+    val gridLines = 5
+    val plotHeight = 174.dp
+    Column(Modifier.fillMaxWidth().semantics { contentDescription = "Weekly Brick time. $summary" }) {
+        Box(Modifier.fillMaxWidth().height(plotHeight)) {
+            Canvas(Modifier.fillMaxSize()) {
+                val dash = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))
+                val step = size.height / (gridLines - 1)
+                val reserve = 28.dp.toPx()
+                val cell = (size.width - reserve) / 7f
+                // Bars first so grid lines stay visible through them.
+                week.days.forEachIndexed { index, day ->
+                    if (day.durationMs > 0) {
+                        val h = (size.height * day.durationMs / axisMax).coerceAtLeast(4.dp.toPx())
+                        val barWidth = 14.dp.toPx()
+                        drawRoundRect(ReferenceInk, Offset(cell * index + (cell - barWidth) / 2, size.height - h),
+                            Size(barWidth, h), CornerRadius(barWidth / 2))
+                    }
+                }
+                repeat(gridLines) { i ->
+                    val y = step * i
+                    drawLine(ReferenceMuted.copy(alpha = 0.6f), Offset(0f, y), Offset(size.width, y),
+                        1.dp.toPx(), pathEffect = dash)
+                }
+            }
+            Text(WeeklyActivity.compactDuration(axisMax), color = ReferenceMuted, fontSize = 13.sp,
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 6.dp))
+            Text(WeeklyActivity.compactDuration(axisMax / 2), color = ReferenceMuted, fontSize = 13.sp,
+                modifier = Modifier.align(Alignment.TopEnd).offset(y = plotHeight / 2 + 6.dp))
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth().padding(end = 28.dp)) {
+            week.days.forEach { day ->
+                val calendar = Calendar.getInstance().apply { timeInMillis = day.startMs }
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(dayFormat.format(Date(day.startMs)).uppercase(Locale.getDefault()),
+                        color = ReferenceMuted, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                    Text("${calendar.get(Calendar.DAY_OF_MONTH)}", color = ReferenceMuted,
+                        fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
     }
 }
 
 @Composable
 private fun SummaryMetric(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier) {
-        Text(label, color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(5.dp))
-        Text(value, color = PureWhite, fontSize = 19.sp, fontWeight = FontWeight.Medium)
+        Text(label, color = ReferenceMuted, fontSize = 12.sp, maxLines = 1)
+        Spacer(Modifier.height(4.dp))
+        Text(value, color = ReferenceInk, fontSize = 17.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+            textAlign = TextAlign.Start)
     }
 }
 

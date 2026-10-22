@@ -3,6 +3,7 @@ package com.brick.app.ui.main
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +40,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.brick.app.ui.design.*
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -64,7 +68,8 @@ enum class MainTab {
     HOME,
     MODES,
     SCHEDULES,
-    STATS
+    STATS,
+    SETTINGS
 }
 
 @Composable
@@ -83,7 +88,7 @@ fun MainScreen(
     val isBricked by sessionManager.isBrickedFlow.collectAsState()
     val activeMode by sessionManager.activeMode.collectAsState()
 
-    var currentTab by remember { mutableStateOf(MainTab.HOME) }
+    var currentTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(MainTab.HOME) }
     val allModes by remember(db) { db.modeDao().observeAllModes() }
         .collectAsState(initial = emptyList())
     var strictModeEnabled by remember { mutableStateOf(false) }
@@ -105,107 +110,96 @@ fun MainScreen(
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(PureBlack)
-            .padding(16.dp)
-    ) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically) {
-            Text("BRICK", color = PureWhite, fontSize = 23.sp,
-                fontWeight = FontWeight.Black, letterSpacing = 2.sp)
-            Text("SETUP", color = TextMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp,
-                modifier = Modifier.clickable { onNavigateOnboarding() }.padding(12.dp))
-        }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-            MainTab.entries.forEach { tab ->
-                Column(Modifier.clickable { currentTab = tab }.padding(vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(tab.name, color = if (currentTab == tab) PureWhite else TextMuted,
-                        fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.8.sp)
-                    Spacer(Modifier.height(7.dp))
-                    Box(Modifier.width(32.dp).height(2.dp)
-                        .background(if (currentTab == tab) PureWhite else PureBlack))
-                }
-            }
-        }
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Box(modifier = Modifier.weight(1f)) {
-            when (currentTab) {
-                MainTab.HOME -> {
-                    HomeContent(
-                        isBricked = isBricked,
-                        activeModeName = activeMode?.name ?: "Deep Work",
-                        strictModeEnabled = if (isBricked) sessionManager.isStrictModeActive() else strictModeEnabled,
-                        onStrictModeChanged = { if (!isBricked) strictModeEnabled = it },
-                        onToggleBrick = {
-                            if (isBricked) {
-                                scanner.requestUnbrickScan()
-                            } else {
-                                scope.launch {
-                                    val tokenCount = withContext(Dispatchers.IO) { db.tokenDao().getTokenCount() }
-                                    val hasBlockableApp = activeMode?.packageNames?.any { pkg ->
-                                        context.packageManager.getLaunchIntentForPackage(pkg) != null
-                                    } == true
-                                    if (tokenCount == 0) {
-                                        statusMessage = "Pair a physical NFC or QR token before bricking."
-                                    } else if (activeMode == null ||
+    val isHome = currentTab == MainTab.HOME
+    ReferenceTheme {
+        Column(modifier.fillMaxSize().background(if (isHome) PureBlack else ReferenceBackground).safeDrawingPadding()) {
+            Box(Modifier.weight(1f).fillMaxWidth()
+            .shadow(if (isHome) 0.dp else 18.dp, RoundedCornerShape(bottomStart = 54.dp, bottomEnd = 54.dp))
+            .background(if (isHome) PureBlack else ReferenceBackground,
+            RoundedCornerShape(bottomStart = 54.dp, bottomEnd = 54.dp))
+            .clip(RoundedCornerShape(bottomStart = 54.dp, bottomEnd = 54.dp))
+            .padding(if (isHome) 16.dp else 0.dp)) {
+                when (currentTab) {
+                    MainTab.HOME -> {
+                        com.brick.app.theme.BrickTheme {
+                            HomeContent(
+                            isBricked = isBricked,
+                            activeModeName = activeMode?.name ?: "Deep Work",
+                            strictModeEnabled = if (isBricked) sessionManager.isStrictModeActive() else strictModeEnabled,
+                            onStrictModeChanged = { if (!isBricked) strictModeEnabled = it },
+                            onToggleBrick = {
+                                if (isBricked) {
+                                    scanner.requestUnbrickScan()
+                                } else {
+                                    scope.launch {
+                                        val tokenCount = withContext(Dispatchers.IO) { db.tokenDao().getTokenCount() }
+                                        val hasBlockableApp = activeMode?.packageNames?.any { pkg ->
+                                            context.packageManager.getLaunchIntentForPackage(pkg) != null
+                                        } == true
+                                        if (tokenCount == 0) {
+                                            statusMessage = "Pair a physical NFC or QR token before bricking."
+                                        } else if (activeMode == null ||
                                         (activeMode?.modeType == ModeType.BLOCK_LIST && !hasBlockableApp)) {
-                                        statusMessage = "Choose an installed app to block in Modes first."
-                                    } else {
-                                        try {
-                                            sessionManager.brick(strictMode = strictModeEnabled)
-                                            statusMessage = ""
-                                        } catch (failure: IllegalStateException) {
-                                            statusMessage = failure.message ?: "Could not start session."
+                                            statusMessage = "Choose an installed app to block in Modes first."
+                                        } else {
+                                            try {
+                                                sessionManager.brick(strictMode = strictModeEnabled)
+                                                statusMessage = ""
+                                            } catch (failure: IllegalStateException) {
+                                                statusMessage = failure.message ?: "Could not start session."
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        },
-                        onPairNfc = { scanner.requestPairNfcToken("My NFC token") },
-                        onPairQr = { scanner.requestPairQrToken("My QR token") },
-                        recoveryRemainingMs = if (recoveryState.isActive) recoveryState.remainingMs else null,
-                        onStartRecovery = { if (isBricked) recoveryEngine.startRecovery() },
-                        statusMessage = statusMessage
-                    )
-                }
-                MainTab.MODES -> {
-                    ModesContent(
+                            },
+                            onPairNfc = { scanner.requestPairNfcToken("My NFC token") },
+                            onPairQr = { scanner.requestPairQrToken("My QR token") },
+                            recoveryRemainingMs = if (recoveryState.isActive) recoveryState.remainingMs else null,
+                            onStartRecovery = { if (isBricked) recoveryEngine.startRecovery() },
+                            statusMessage = statusMessage
+                            )
+                        }
+                    }
+                    MainTab.MODES -> {
+                        ModesContent(
                         modes = allModes,
                         activeModeId = activeMode?.id,
                         isBricked = isBricked,
                         onSelectMode = { mode ->
                             if (!isBricked) scope.launch {
                                 withContext(Dispatchers.IO) {
-                                    db.modeDao().setDefaultMode(mode.id)
+                                    sessionManager.whileUnbricked { db.modeDao().setDefaultMode(mode.id) }
                                     sessionManager.refreshSession()
                                 }
+                            }
+                        },
+                        onUpdateMode = { mode ->
+                            scope.launch(Dispatchers.IO) {
+                                sessionManager.whileUnbricked { db.modeDao().update(mode) }
+                                sessionManager.refreshSession()
                             }
                         },
                         onAddMode = { name, type, packages ->
                             if (!isBricked) scope.launch {
                                 withContext(Dispatchers.IO) {
                                     val newMode = ModeEntity(
-                                        name = name,
-                                        modeType = type,
-                                        packageNames = packages.toSet(),
-                                        isDefault = false
+                                    name = name,
+                                    modeType = type,
+                                    packageNames = packages.toSet(),
+                                    isDefault = false
                                     )
-                                    val id = db.modeDao().insert(newMode)
-                                    db.modeDao().setDefaultMode(id)
+                                    sessionManager.whileUnbricked {
+                                        val id = db.modeDao().insert(newMode)
+                                        db.modeDao().setDefaultMode(id)
+                                    }
                                     sessionManager.refreshSession()
                                 }
                             }
                         }
-                    )
-                }
-                MainTab.SCHEDULES -> {
-                    SchedulesContent(
+                        )
+                    }
+                    MainTab.SCHEDULES -> {
+                        SchedulesContent(
                         schedules = schedules,
                         modes = allModes,
                         isBricked = isBricked,
@@ -240,12 +234,36 @@ fun MainScreen(
                                 db.scheduleDao().delete(schedule)
                             }
                         }
-                    )
-                }
-                MainTab.STATS -> {
-                    StatsContent()
+                        )
+                    }
+                    MainTab.STATS -> {
+                        StatsContent()
+                    }
+                    MainTab.SETTINGS -> {
+                        SettingsContent(isBricked, onNavigateOnboarding,
+                        onManageModes = { currentTab = MainTab.MODES },
+                        onPairNfc = { scanner.requestPairNfcToken("My NFC token") },
+                        onPairQr = { scanner.requestPairQrToken("My QR token") })
+                    }
                 }
             }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 22.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly) {
+                listOf(MainTab.HOME to "Brick", MainTab.SCHEDULES to "Schedule",
+                MainTab.STATS to "Activity", MainTab.SETTINGS to "Settings").forEach { (tab, label) ->
+                    val active = currentTab == tab || (currentTab == MainTab.MODES && tab == MainTab.SETTINGS)
+                    Column(Modifier.weight(1f).clickable { currentTab = tab }.padding(vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(label, fontSize = 17.sp,
+                        color = if (active) { if (isHome) PureWhite else ReferenceInk } else ReferenceMuted)
+                        Spacer(Modifier.height(5.dp))
+                        Box(Modifier.width(6.dp).height(6.dp).background(
+                        if (active) { if (isHome) PureWhite else ReferenceInk } else androidx.compose.ui.graphics.Color.Transparent,
+                        RoundedCornerShape(2.dp)))
+                    }
+                }
+            }
+
         }
     }
 }
@@ -360,68 +378,6 @@ fun HomeContent(
                     uncheckedTrackColor = DarkSurface
                 )
             )
-        }
-    }
-}
-
-@Composable
-fun ModesContent(
-    modes: List<ModeEntity>,
-    activeModeId: Long?,
-    isBricked: Boolean = false,
-    onSelectMode: (ModeEntity) -> Unit,
-    onAddMode: (String, ModeType, List<String>) -> Unit
-) {
-    val context = LocalContext.current
-    val installedApps = remember(context) {
-        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-        context.packageManager.queryIntentActivities(launcher, 0)
-            .map { it.activityInfo.packageName to it.loadLabel(context.packageManager).toString() }
-            .filter { it.first != context.packageName }
-            .distinctBy { it.first }
-            .sortedBy { it.second.lowercase() }
-    }
-    var modeName by remember { mutableStateOf("") }
-    var modeType by remember { mutableStateOf(ModeType.BLOCK_LIST) }
-    var selected by remember { mutableStateOf(setOf<String>()) }
-    var showEditor by remember { mutableStateOf(false) }
-    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Text("FOCUS MODES", color = PureWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(12.dp))
-        modes.forEach { mode ->
-            Card(colors = CardDefaults.cardColors(containerColor = CardSurface),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(enabled = !isBricked) { onSelectMode(mode) }) {
-                Column(Modifier.padding(14.dp)) {
-                    Text(mode.name + if (mode.id == activeModeId) " • ACTIVE" else "", color = PureWhite)
-                    Text("${mode.modeType.name} • ${mode.packageNames.size} apps", color = TextMuted)
-                }
-            }
-        }
-        Button(enabled = !isBricked, onClick = { showEditor = !showEditor }) { Text("ADD MODE") }
-        if (showEditor && !isBricked) {
-            OutlinedTextField(value = modeName, onValueChange = { modeName = it }, label = { Text("Mode name") })
-            Row {
-                Button(onClick = { modeType = ModeType.BLOCK_LIST }) { Text(if (modeType == ModeType.BLOCK_LIST) "✓ Block list" else "Block list") }
-                Button(onClick = { modeType = ModeType.ALLOW_LIST }) { Text(if (modeType == ModeType.ALLOW_LIST) "✓ Allow list" else "Allow list") }
-            }
-            Text("SELECT INSTALLED APPS", color = PureWhite)
-            installedApps.forEach { (pkg, label) ->
-                Row(verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        selected = if (pkg in selected) selected - pkg else selected + pkg
-                    }) {
-                    Checkbox(checked = pkg in selected, onCheckedChange = {
-                        selected = if (it) selected + pkg else selected - pkg
-                    })
-                    Text(label, color = PureWhite)
-                }
-            }
-            Button(enabled = modeName.isNotBlank() && selected.isNotEmpty(), onClick = {
-                onAddMode(modeName.trim(), modeType, selected.toList())
-                showEditor = false
-                modeName = ""
-                selected = emptySet()
-            }) { Text("SAVE MODE") }
         }
     }
 }

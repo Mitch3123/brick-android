@@ -1,6 +1,28 @@
 package com.brick.app.ui.scan
 
 import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import com.brick.app.ui.design.PillButton
+import com.brick.app.ui.design.ReferenceCard
+import com.brick.app.ui.design.ReferenceInk
+import com.brick.app.ui.design.ReferenceMuted
+import com.brick.app.ui.design.ReferenceSheet
+import com.brick.app.ui.design.RoundBackButton
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,9 +41,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -48,7 +67,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.brick.app.core.database.TokenType
 import com.brick.app.feature.nfc.GeneratedQrToken
-import com.brick.app.feature.nfc.ScanIntent
 import com.brick.app.feature.nfc.ScanMedium
 import com.brick.app.feature.nfc.ScanPhase
 import com.brick.app.feature.nfc.ScanResult
@@ -101,6 +119,10 @@ fun TokenScannerHost(
     }
 }
 
+/** True when the camera should be shown: QR-only requests, or ANY after the user chose QR. */
+internal fun showsCamera(medium: ScanMedium, userChoseQr: Boolean): Boolean =
+    medium == ScanMedium.QR || (medium == ScanMedium.ANY && userChoseQr)
+
 @Composable
 private fun ScanOverlay(
     state: TokenScanUiState,
@@ -108,56 +130,155 @@ private fun ScanOverlay(
     onQrPayload: (String) -> Unit,
     onCancel: () -> Unit
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.92f))
-            .testTag(ScanTestTags.OVERLAY),
-        contentAlignment = Alignment.Center
-    ) {
+    var userChoseQr by rememberSaveable { mutableStateOf(false) }
+    var showHelp by rememberSaveable { mutableStateOf(false) }
+    val camera = showsCamera(state.medium, userChoseQr)
+    val screenHeight = with(androidx.compose.ui.platform.LocalDensity.current) {
+        androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.height.toDp()
+    }
+
+    ReferenceSheet(onDismiss = onCancel, modifier = modifier) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .heightIn(min = screenHeight * 0.46f)
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(start = 22.dp, end = 22.dp, top = 16.dp, bottom = 22.dp)
+                .testTag(ScanTestTags.OVERLAY),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = title(state),
-                style = MaterialTheme.typography.headlineSmall,
-                color = Color.White,
-                textAlign = TextAlign.Center
-            )
-            Text(
-                text = instructions(state),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.8f),
-                textAlign = TextAlign.Center
-            )
-
-            if (state.medium != ScanMedium.NFC) {
-                QrCameraScanner(
-                    enabled = state.phase == ScanPhase.WAITING_FOR_TOKEN,
-                    onQrPayload = onQrPayload,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(16.dp))
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                RoundBackButton(onClick = onCancel, close = true, modifier = Modifier.size(40.dp))
+            }
+            Spacer(Modifier.height(12.dp))
+            if (showHelp) {
+                HelpContent(
+                    state = state,
+                    canUseQr = state.medium == ScanMedium.ANY && !camera,
+                    onUseQr = { userChoseQr = true; showHelp = false },
+                    onBack = { showHelp = false }
                 )
+            } else {
+                Text(
+                    text = if (camera) "Scan the QR card" else "Ready to scan",
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Normal,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = if (camera) "Point the camera at your printed QR card"
+                    else "Hold your phone near the Brick",
+                    fontSize = 17.sp,
+                    color = ReferenceInk,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(24.dp))
+                if (camera) {
+                    QrCameraScanner(
+                        enabled = state.phase == ScanPhase.WAITING_FOR_TOKEN,
+                        onQrPayload = onQrPayload,
+                        modifier = Modifier
+                            .fillMaxWidth(0.7f)
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(20.dp))
+                    )
+                } else {
+                    PhoneNearBrickIllustration()
+                }
+                if (state.phase == ScanPhase.VERIFYING) {
+                    Spacer(Modifier.height(12.dp))
+                    CircularProgressIndicator(color = ReferenceInk)
+                }
+                if (!camera && !state.isNfcAvailable) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("This device has no NFC radio.", color = ReferenceMuted, fontSize = 14.sp)
+                } else if (!camera && state.isNfcAvailable && !state.isNfcEnabled) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("NFC is switched off in system settings.", color = ReferenceMuted, fontSize = 14.sp)
+                }
+                Spacer(Modifier.height(28.dp))
+                TextButton(onClick = { showHelp = true }) {
+                    Text("Having trouble scanning?", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = ReferenceInk)
+                }
             }
-
-            if (state.phase == ScanPhase.VERIFYING) {
-                CircularProgressIndicator(color = Color.White)
-            }
-
-            TextButton(
+            Spacer(Modifier.height(16.dp))
+            PillButton(
+                text = "Cancel",
                 onClick = onCancel,
+                secondary = true,
                 modifier = Modifier.testTag(ScanTestTags.CANCEL)
-            ) {
-                Text(text = "Cancel", color = Color.White)
-            }
+            )
         }
     }
+}
+
+@Composable
+private fun HelpContent(
+    state: TokenScanUiState,
+    canUseQr: Boolean,
+    onUseQr: () -> Unit,
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+    var settingsError by remember { mutableStateOf<String?>(null) }
+    Text("Having trouble scanning?", fontSize = 26.sp, textAlign = TextAlign.Center)
+    Spacer(Modifier.height(12.dp))
+    val nfcStatus = when {
+        state.medium == ScanMedium.QR -> null
+        !state.isNfcAvailable -> "This device has no NFC radio."
+        !state.isNfcEnabled -> "NFC is switched off. Turn it on in system settings."
+        else -> "NFC is on."
+    }
+    Text(
+        text = listOfNotNull(
+            nfcStatus,
+            "Hold the back of your phone flat against the Brick and keep it still for a moment. " +
+                "Thick cases can block the signal."
+        ).joinToString(" "),
+        fontSize = 16.sp,
+        color = ReferenceMuted,
+        textAlign = TextAlign.Center
+    )
+    settingsError?.let {
+        Spacer(Modifier.height(8.dp))
+        Text(it, fontSize = 14.sp, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+    }
+    Spacer(Modifier.height(20.dp))
+    if (state.medium != ScanMedium.QR && state.isNfcAvailable) {
+        PillButton(
+            text = "Open NFC settings",
+            onClick = { settingsError = openNfcSettings(context) },
+            secondary = true
+        )
+        Spacer(Modifier.height(10.dp))
+    }
+    if (canUseQr) {
+        PillButton(text = "Scan a QR code instead", onClick = onUseQr)
+        Spacer(Modifier.height(10.dp))
+    }
+    TextButton(onClick = onBack) {
+        Text("Back to scanning", fontSize = 16.sp, color = ReferenceInk)
+    }
+}
+
+/** Returns an error message, or null when a settings screen was launched. */
+private fun openNfcSettings(context: Context): String? {
+    val intents = listOf(
+        Intent(Settings.ACTION_NFC_SETTINGS),
+        Intent(Settings.ACTION_WIRELESS_SETTINGS)
+    )
+    for (intent in intents) {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            context.startActivity(intent)
+            return null
+        } catch (_: ActivityNotFoundException) {
+            // try next fallback
+        }
+    }
+    return "Couldn't open settings on this device. Enable NFC from system settings manually."
 }
 
 @Composable
@@ -178,6 +299,7 @@ private fun QrCameraScanner(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> hasPermission = granted }
+    var cameraError by remember { mutableStateOf<String?>(null) }
 
     if (!hasPermission) {
         Column(
@@ -187,17 +309,18 @@ private fun QrCameraScanner(
         ) {
             Text(
                 text = "Camera access is needed to scan a printed QR token.",
-                color = Color.White,
                 textAlign = TextAlign.Center
             )
-            Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
-                Text("Allow camera")
-            }
+            Spacer(Modifier.height(12.dp))
+            PillButton(
+                text = "Allow camera",
+                onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }
+            )
         }
         return
     }
 
-    val previewView = remember { PreviewView(context) }
+    val previewView = remember { PreviewView(context).apply { implementationMode = PreviewView.ImplementationMode.COMPATIBLE } }
 
     DisposableEffect(enabled, previewView) {
         if (!enabled) {
@@ -213,8 +336,12 @@ private fun QrCameraScanner(
             // The provider future can complete after this effect was disposed; binding then
             // would leave a camera session running with no surface to render into.
             if (disposed) return@addListener
-            val provider = runCatching { providerFuture.get() }.getOrNull()
-                ?: return@addListener
+            val provider = try {
+                providerFuture.get()
+            } catch (e: Exception) {
+                cameraError = "The camera couldn't start (${e.cause?.message ?: e.message ?: "unknown error"})."
+                return@addListener
+            }
             boundProvider = provider
 
             val preview = Preview.Builder().build().apply {
@@ -225,7 +352,7 @@ private fun QrCameraScanner(
                 .build()
                 .apply { setAnalyzer(analysisExecutor, QrImageAnalyzer(onPayload = onQrPayload)) }
 
-            runCatching {
+            try {
                 provider.unbindAll()
                 provider.bindToLifecycle(
                     lifecycleOwner,
@@ -233,6 +360,11 @@ private fun QrCameraScanner(
                     preview,
                     analysis
                 )
+                cameraError = null
+            } catch (e: IllegalArgumentException) {
+                cameraError = "No usable camera was found on this device."
+            } catch (e: IllegalStateException) {
+                cameraError = "The camera is unavailable right now. Close other camera apps and try again."
             }
         }, mainExecutor)
 
@@ -243,74 +375,102 @@ private fun QrCameraScanner(
         }
     }
 
-    AndroidView(
-        factory = { previewView },
-        modifier = modifier.testTag(ScanTestTags.CAMERA_PREVIEW)
-    )
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        AndroidView(
+            factory = { previewView },
+            modifier = Modifier.fillMaxSize().testTag(ScanTestTags.CAMERA_PREVIEW)
+        )
+        cameraError?.let {
+            Text(
+                text = it,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(ReferenceCard)
+                    .padding(16.dp),
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun ResultSheet(
+    title: String,
+    tag: String,
+    onDismiss: () -> Unit,
+    buttonText: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    ReferenceSheet(onDismiss = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(start = 22.dp, end = 22.dp, top = 16.dp, bottom = 22.dp)
+                .testTag(tag),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                RoundBackButton(onClick = onDismiss, close = true, modifier = Modifier.size(40.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(title, fontSize = 28.sp, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(12.dp))
+            content()
+            Spacer(Modifier.height(24.dp))
+            PillButton(text = buttonText, onClick = onDismiss)
+        }
+    }
 }
 
 @Composable
 private fun OutcomeDialog(outcome: TokenScanOutcome, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        modifier = Modifier.testTag(ScanTestTags.OUTCOME),
-        title = { Text(outcomeTitle(outcome)) },
-        text = { Text(outcomeMessage(outcome)) },
-        confirmButton = { Button(onClick = onDismiss) { Text("OK") } }
-    )
+    ResultSheet(
+        title = outcomeTitle(outcome),
+        tag = ScanTestTags.OUTCOME,
+        onDismiss = onDismiss,
+        buttonText = "OK"
+    ) {
+        Text(
+            text = outcomeMessage(outcome),
+            fontSize = 17.sp,
+            color = ReferenceMuted,
+            textAlign = TextAlign.Center
+        )
+    }
 }
 
 @Composable
 private fun PrintableQrDialog(token: GeneratedQrToken, onDone: () -> Unit) {
     val bitmap = remember(token.payload) { QrCodeGenerator.generateQrBitmap(token.payload) }
-    AlertDialog(
-        onDismissRequest = onDone,
-        modifier = Modifier.testTag(ScanTestTags.PRINTABLE_QR),
-        title = { Text("Print \"${token.label}\"") },
-        text = {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Card {
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "QR token ${token.label}",
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .padding(8.dp)
-                    )
-                }
-                Text(
-                    text = "Print or photograph this code and keep it away from your phone. " +
-                        "Scanning it is the only way it can unlock a session.",
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center
-                )
-            }
-        },
-        confirmButton = { Button(onClick = onDone) { Text("Done") } }
-    )
-}
-
-private fun title(state: TokenScanUiState): String = when {
-    state.intent == ScanIntent.PAIR -> "Pair a token"
-    state.medium == ScanMedium.NFC -> "Tap your NFC tag"
-    state.medium == ScanMedium.QR -> "Scan your QR card"
-    else -> "Scan your token"
-}
-
-private fun instructions(state: TokenScanUiState): String {
-    val nfcHint = when {
-        state.medium == ScanMedium.QR -> null
-        !state.isNfcAvailable -> "This device has no NFC radio."
-        !state.isNfcEnabled -> "NFC is switched off in system settings."
-        else -> "Hold the tag against the back of the phone."
+    ResultSheet(
+        title = "Print \"${token.label}\"",
+        tag = ScanTestTags.PRINTABLE_QR,
+        onDismiss = onDone,
+        buttonText = "Done"
+    ) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "QR token ${token.label}",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxWidth(0.7f)
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White)
+                .padding(8.dp)
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            text = "Print or photograph this code and keep it away from your phone. " +
+                "Scanning it is the only way it can unlock a session.",
+            fontSize = 14.sp,
+            color = ReferenceMuted,
+            textAlign = TextAlign.Center
+        )
     }
-    val qrHint = if (state.medium != ScanMedium.NFC) "Or point the camera at your printed QR card." else null
-    return listOfNotNull(nfcHint, qrHint).joinToString(" ").ifEmpty { "Present your paired token." }
 }
 
 private fun outcomeTitle(outcome: TokenScanOutcome): String = when (outcome) {

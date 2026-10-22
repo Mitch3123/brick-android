@@ -1,7 +1,7 @@
 package com.brick.app
 
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.core.content.edit
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.getValue
@@ -21,15 +21,15 @@ fun MainNavigation() {
     if (showOnboarding) {
         OnboardingScreen(
             onFinishOnboarding = {
-                preferences.edit().putBoolean("onboarding_complete", true).apply()
+                preferences.edit { putBoolean("onboarding_complete", true) }
                 showOnboarding = false
             },
-            modifier = Modifier.fillMaxSize().safeDrawingPadding()
+            modifier = Modifier.fillMaxSize()
         )
     } else {
         MainScreen(
             onNavigateOnboarding = { showOnboarding = true },
-            modifier = Modifier.fillMaxSize().safeDrawingPadding()
+            modifier = Modifier.fillMaxSize()
         )
     }
 }
