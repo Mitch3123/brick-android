@@ -5,7 +5,14 @@ import android.content.Context
 import android.content.pm.PackageManager
 import com.brick.app.BuildConfig
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.brick.app.feature.schedules.ScheduleAlarmReceiver
@@ -71,10 +78,54 @@ class MainScreenTest {
       SchedulesContent(listOf(rule), listOf(mode), onSave = {}, onEnabled = { _, _ -> }, onDelete = {})
     }
     composeTestRule.onNodeWithText("Morning", substring = true).assertExists()
-    composeTestRule.onNodeWithText("EDIT").performClick()
+    composeTestRule.onNodeWithContentDescription("Edit Morning").performClick()
     composeTestRule.onNodeWithText("EDIT SCHEDULE").assertExists()
-    composeTestRule.onNodeWithText("Mon").assertExists()
+    composeTestRule.onNodeWithContentDescription("Monday").assertExists()
     composeTestRule.onNodeWithText("SAVE SCHEDULE").assertExists()
+  }
+
+
+  @Test
+  fun editingDisabledScheduleKeepsItsIdentityAndDisabledState() {
+    val mode = ModeEntity(id = 1, name = "Deep Work", modeType = ModeType.BLOCK_LIST,
+      packageNames = setOf("com.android.chrome"))
+    val rule = ScheduleEntity(id = 12, name = "Quiet mornings", modeId = 1,
+      daysOfWeek = ScheduleEntity.WEEKDAYS, startHour = 9, startMinute = 0,
+      isEnabled = false, createdAt = 123456L)
+    var saved: ScheduleEntity? = null
+    composeTestRule.setContent {
+      SchedulesContent(listOf(rule), listOf(mode), onSave = { saved = it },
+        onEnabled = { _, _ -> }, onDelete = {})
+    }
+    composeTestRule.onNodeWithContentDescription("Edit Quiet mornings").performClick()
+    composeTestRule.onRoot().performScrollToNode(hasText("SAVE SCHEDULE"))
+    composeTestRule.onNodeWithText("SAVE SCHEDULE").performClick()
+    composeTestRule.runOnIdle { org.junit.Assert.assertEquals(rule, saved) }
+  }
+
+  @Test
+  fun scheduleWeekdaysAreSelectableWithoutBricking() {
+    val mode = ModeEntity(id = 1, name = "Deep Work", modeType = ModeType.BLOCK_LIST,
+      packageNames = setOf("com.android.chrome"))
+    composeTestRule.setContent {
+      SchedulesContent(emptyList(), listOf(mode), onSave = {},
+        onEnabled = { _, _ -> }, onDelete = {})
+    }
+    composeTestRule.onNodeWithText("+  ADD SCHEDULE").performClick()
+    composeTestRule.onNodeWithText("SAVE SCHEDULE").assertIsNotEnabled()
+    composeTestRule.onNodeWithContentDescription("Sunday").performClick()
+    composeTestRule.onNodeWithContentDescription("Saturday").performClick()
+    composeTestRule.onNodeWithText("Every day").assertExists()
+    composeTestRule.onNodeWithText("CANCEL").performClick()
+    composeTestRule.onNodeWithText("+  ADD SCHEDULE").assertExists()
+  }
+
+  @Test
+  fun statsEmptyStateShowsRealZeroesAndNoInventedSessions() {
+    composeTestRule.setContent { StatsDashboard(emptyList()) }
+    composeTestRule.onNodeWithText("YOUR FOCUS").assertExists()
+    org.junit.Assert.assertTrue("Today and average should be zero", composeTestRule.onAllNodesWithText("0:00").fetchSemanticsNodes().size >= 2)
+    composeTestRule.onNodeWithText("THE LAST 15 DAYS").assertExists()
   }
 
   @Test

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BRICK themed-icon monochrome (tinted by the system): three-course running-bond wall, centre brick hollow. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- scaled so the wall's corners stay inside the 66dp adaptive safe circle -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.94"
+        android:scaleY="0.94">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M32,30h18.5a2,2 0,0 1,2,2v10a2,2 0,0 1,-2,2h-18.5a2,2 0,0 1,-2,-2v-10a2,2 0,0 1,2,-2zM57.5,30h18.5a2,2 0,0 1,2,2v10a2,2 0,0 1,-2,2h-18.5a2,2 0,0 1,-2,-2v-10a2,2 0,0 1,2,-2zM32,47h6.5a2,2 0,0 1,2,2v10a2,2 0,0 1,-2,2h-6.5a2,2 0,0 1,-2,-2v-10a2,2 0,0 1,2,-2zM69.5,47h6.5a2,2 0,0 1,2,2v10a2,2 0,0 1,-2,2h-6.5a2,2 0,0 1,-2,-2v-10a2,2 0,0 1,2,-2zM32,64h18.5a2,2 0,0 1,2,2v10a2,2 0,0 1,-2,2h-18.5a2,2 0,0 1,-2,-2v-10a2,2 0,0 1,2,-2zM57.5,64h18.5a2,2 0,0 1,2,2v10a2,2 0,0 1,-2,2h-18.5a2,2 0,0 1,-2,-2v-10a2,2 0,0 1,2,-2z" />
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M45.5,47h17a2,2 0,0 1,2,2v10a2,2 0,0 1,-2,2h-17a2,2 0,0 1,-2,-2v-10a2,2 0,0 1,2,-2zM47.75,50.5h12.5a0.75,0.75 0,0 1,0.75,0.75v5.5a0.75,0.75 0,0 1,-0.75,0.75h-12.5a0.75,0.75 0,0 1,-0.75,-0.75v-5.5a0.75,0.75 0,0 1,0.75,-0.75z" />
+    </group>
+</vector>

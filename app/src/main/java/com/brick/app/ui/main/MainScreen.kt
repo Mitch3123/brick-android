@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.OutlinedTextField
@@ -46,12 +47,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.brick.app.core.database.BrickDatabase
-import com.brick.app.core.database.BrickSessionEntity
 import com.brick.app.core.database.ModeEntity
 import com.brick.app.core.database.ModeType
 import com.brick.app.feature.home.SessionManager
-import com.brick.app.feature.stats.StreakCalculator
-import com.brick.app.feature.stats.StreakStats
 import com.brick.app.theme.CardSurface
 import com.brick.app.theme.DarkSurface
 import com.brick.app.theme.PureBlack
@@ -61,9 +59,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 enum class MainTab {
     HOME,
@@ -116,57 +111,28 @@ fun MainScreen(
             .background(PureBlack)
             .padding(16.dp)
     ) {
-        // Top Navigation Bar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
+        Row(Modifier.fillMaxWidth().padding(vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "BRICK",
-                color = PureWhite,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Black,
-                letterSpacing = 2.sp
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("SETUP", color = TextMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp,
-                    modifier = Modifier.clickable { onNavigateOnboarding() })
-                Text(
-                    text = "HOME",
-                    color = if (currentTab == MainTab.HOME) PureWhite else TextMuted,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    modifier = Modifier.clickable { currentTab = MainTab.HOME }
-                )
-                Text(
-                    text = "MODES",
-                    color = if (currentTab == MainTab.MODES) PureWhite else TextMuted,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    modifier = Modifier.clickable { currentTab = MainTab.MODES }
-                )
-                Text(
-                    text = "SCHEDULES",
-                    color = if (currentTab == MainTab.SCHEDULES) PureWhite else TextMuted,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    modifier = Modifier.clickable { currentTab = MainTab.SCHEDULES }
-                )
-                Text(
-                    text = "STATS",
-                    color = if (currentTab == MainTab.STATS) PureWhite else TextMuted,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                    modifier = Modifier.clickable { currentTab = MainTab.STATS }
-                )
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("BRICK", color = PureWhite, fontSize = 23.sp,
+                fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+            Text("SETUP", color = TextMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+                modifier = Modifier.clickable { onNavigateOnboarding() }.padding(12.dp))
+        }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+            MainTab.entries.forEach { tab ->
+                Column(Modifier.clickable { currentTab = tab }.padding(vertical = 12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(tab.name, color = if (currentTab == tab) PureWhite else TextMuted,
+                        fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.8.sp)
+                    Spacer(Modifier.height(7.dp))
+                    Box(Modifier.width(32.dp).height(2.dp)
+                        .background(if (currentTab == tab) PureWhite else PureBlack))
+                }
             }
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
         Box(modifier = Modifier.weight(1f)) {
             when (currentTab) {
@@ -459,280 +425,3 @@ fun ModesContent(
         }
     }
 }
-
-@Composable
-fun SchedulesContent(
-    schedules: List<ScheduleEntity>,
-    modes: List<ModeEntity>,
-    isBricked: Boolean = false,
-    exactAlarmStatus: ExactAlarmStatus = ExactAlarmStatus.UNKNOWN,
-    onOpenExactAlarmSettings: () -> Unit = {},
-    onSave: (ScheduleEntity) -> Unit,
-    onEnabled: (ScheduleEntity, Boolean) -> Unit,
-    onDelete: (ScheduleEntity) -> Unit
-) {
-    var editing by remember { mutableStateOf<ScheduleEntity?>(null) }
-    var name by remember { mutableStateOf("") }
-    var hour by remember { mutableStateOf("09") }
-    var minute by remember { mutableStateOf("00") }
-    var selectedModeId by remember { mutableStateOf<Long?>(null) }
-    var days by remember { mutableStateOf(ScheduleEntity.WEEKDAYS) }
-    val selectedMode = if (selectedModeId == null) modes.firstOrNull()
-        else modes.find { it.id == selectedModeId }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Text("SCHEDULES", color = PureWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        when (exactAlarmStatus) {
-            ExactAlarmStatus.INEXACT_FALLBACK -> {
-                Text("Exact alarms are unavailable. Schedules may start late.", color = TextMuted)
-                Button(onClick = onOpenExactAlarmSettings) { Text("ALLOW EXACT ALARMS") }
-            }
-            ExactAlarmStatus.FAILED -> Text("Alarm setup failed; schedules will not run.", color = TextMuted)
-            else -> Unit
-        }
-        schedules.forEach { schedule ->
-            Card(colors = CardDefaults.cardColors(containerColor = CardSurface),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Column(Modifier.padding(12.dp)) {
-                    Text("${schedule.name} • %02d:%02d".format(schedule.startHour, schedule.startMinute), color = PureWhite)
-                    Text("Days: ${schedule.daysOfWeek} • Mode: ${modes.find { it.id == schedule.modeId }?.name ?: "Deleted"}", color = TextMuted)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Switch(checked = schedule.isEnabled, enabled = !isBricked,
-                            onCheckedChange = { onEnabled(schedule, it) })
-                        Button(enabled = !isBricked, onClick = {
-                            editing = schedule
-                            name = schedule.name
-                            hour = "%02d".format(schedule.startHour)
-                            minute = "%02d".format(schedule.startMinute)
-                            selectedModeId = schedule.modeId
-                            days = schedule.daysOfWeek
-                        }) { Text("EDIT") }
-                        Button(enabled = !isBricked, onClick = { onDelete(schedule) }) { Text("DELETE") }
-                    }
-                }
-            }
-        }
-        Text(if (editing == null) "NEW SCHEDULE" else "EDIT SCHEDULE", color = PureWhite)
-        OutlinedTextField(value = name, onValueChange = { name = it }, enabled = !isBricked,
-            label = { Text("Name") })
-        Row {
-            OutlinedTextField(value = hour, onValueChange = { hour = it.filter(Char::isDigit).take(2) },
-                label = { Text("Hour (0-23)") }, enabled = !isBricked, modifier = Modifier.weight(1f))
-            OutlinedTextField(value = minute, onValueChange = { minute = it.filter(Char::isDigit).take(2) },
-                label = { Text("Minute (0-59)") }, enabled = !isBricked, modifier = Modifier.weight(1f))
-        }
-        Text("MODE", color = PureWhite)
-        modes.forEach { mode ->
-            Button(enabled = !isBricked, onClick = { selectedModeId = mode.id }) {
-                Text(if (selectedMode?.id == mode.id) "✓ ${mode.name}" else mode.name)
-            }
-        }
-        Text("DAYS", color = PureWhite)
-        listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun").forEachIndexed { index, label ->
-            val bit = 1 shl index
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = days and bit != 0, enabled = !isBricked, onCheckedChange = { checked ->
-                    days = if (checked) days or bit else days and bit.inv()
-                })
-                Text(label, color = PureWhite)
-            }
-        }
-        val h = hour.toIntOrNull()
-        val m = minute.toIntOrNull()
-        Button(enabled = !isBricked && name.isNotBlank() && selectedMode != null && h != null && h in 0..23 &&
-            m != null && m in 0..59 && days != 0, onClick = {
-            val previous = editing
-            onSave(ScheduleEntity(id = previous?.id ?: 0L, name = name.trim(),
-                modeId = selectedMode!!.id, daysOfWeek = days,
-                startHour = h!!, startMinute = m!!, isEnabled = previous?.isEnabled ?: true,
-                createdAt = previous?.createdAt ?: System.currentTimeMillis()))
-            name = ""
-            editing = null
-        }) { Text("SAVE SCHEDULE") }
-    }
-}
-
-@Composable
-fun StatsContent() {
-    val context = LocalContext.current
-    val db = remember { BrickDatabase.getInstance(context) }
-    var stats by remember { mutableStateOf(StreakStats(0, 0, 0L, 0)) }
-    var sessions by remember { mutableStateOf<List<BrickSessionEntity>>(emptyList()) }
-
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            val completed = db.sessionDao().getAllCompletedSessions()
-            stats = StreakCalculator.calculateStats(completed)
-            sessions = completed
-        }
-    }
-
-    val totalHours = stats.totalBrickedTimeMs / (1000 * 60 * 60)
-    val totalMinutes = (stats.totalBrickedTimeMs / (1000 * 60)) % 60
-
-    val history = remember(sessions) {
-        sessions.sortedByDescending { it.startTimeMs }.take(MAX_HISTORY_ROWS)
-    }
-    val timestampFormat = remember { SimpleDateFormat("EEE d MMM, HH:mm", Locale.getDefault()) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
-        Text(
-            text = "FOCUS STATS",
-            color = PureWhite,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CardSurface),
-                modifier = Modifier.weight(1f)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("CURRENT STREAK", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("${stats.currentStreakDays} DAYS", color = PureWhite, fontSize = 20.sp, fontWeight = FontWeight.Black)
-                }
-            }
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = CardSurface),
-                modifier = Modifier.weight(1f)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("LONGEST STREAK", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("${stats.longestStreakDays} DAYS", color = PureWhite, fontSize = 20.sp, fontWeight = FontWeight.Black)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Card(
-            colors = CardDefaults.cardColors(containerColor = CardSurface),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("TOTAL TIME BRICKED", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("${totalHours}h ${totalMinutes}m", color = PureWhite, fontSize = 24.sp, fontWeight = FontWeight.Black)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text("Completed Sessions: ${stats.sessionCount}", color = TextMuted, fontSize = 12.sp)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = "SESSION HISTORY",
-            color = PureWhite,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 1.sp
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (history.isEmpty()) {
-            Text(
-                text = "No completed sessions yet.",
-                color = TextMuted,
-                fontSize = 12.sp
-            )
-        } else {
-            history.forEach { session ->
-                SessionHistoryRow(session = session, timestampFormat = timestampFormat)
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-            if (sessions.size > history.size) {
-                Text(
-                    text = "Showing latest ${history.size} of ${sessions.size} sessions",
-                    color = TextMuted,
-                    fontSize = 11.sp
-                )
-            }
-        }
-    }
-}
-
-private const val MAX_HISTORY_ROWS = 20
-
-@Composable
-private fun SessionHistoryRow(
-    session: BrickSessionEntity,
-    timestampFormat: SimpleDateFormat
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = CardSurface),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = timestampFormat.format(Date(session.startTimeMs)),
-                    color = PureWhite,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = formatSessionDuration(sessionDurationMs(session)),
-                    color = PureWhite,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Black
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = session.modeName,
-                    color = TextMuted,
-                    fontSize = 11.sp
-                )
-                Text(
-                    text = "ENDED BY ${triggerLabel(session)}",
-                    color = TextMuted,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
-}
-
-private fun sessionDurationMs(session: BrickSessionEntity): Long =
-    session.durationMs
-        ?: session.endTimeMs?.let { (it - session.startTimeMs).coerceAtLeast(0L) }
-        ?: 0L
-
-private fun formatSessionDuration(durationMs: Long): String {
-    val totalMinutes = durationMs / (1000 * 60)
-    val hours = totalMinutes / 60
-    val minutes = totalMinutes % 60
-    return when {
-        totalMinutes < 1 -> "<1m"
-        hours == 0L -> "${minutes}m"
-        else -> "${hours}h ${minutes}m"
-    }
-}
-
-private fun triggerLabel(session: BrickSessionEntity): String =
-    session.unbrickTrigger?.name?.replace('_', ' ') ?: "UNKNOWN"
